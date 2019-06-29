@@ -1,0 +1,130 @@
+function [newCTFfidpoints]=Pol2Ctf(hsffilename,elcfilename,outfilename,transfilename,pathname)
+%% function [endelcpoints]=Pol2Ctf(hsffilename,elcfilename,transfilename,outfilename,pathname)
+%% given headshape file and elcfilename, converts to head centred coordinate frame
+%% writes the results to outfilename
+%% if transfilename is given, the locations for the new CTF fiduciary points (in mm) are returned 
+%% 
+%% AH 12 March 2002: Modified so that more than 3 coils can be read from a *.elc file
+
+if nargin<1,
+  hsffilename='';
+end;
+if nargin<2,
+  elcfilename='';
+end;
+if nargin<3,
+  outfilename='';
+end;
+if nargin<4,
+  transfilename='';
+end;
+if nargin<5,
+  pathname='';
+end;
+
+
+hsffilename
+if length(hsffilename)==0,
+  [hsffilename, pathname] = uigetfile([pathname '*.hsf'], 'Give the polhemus headshape-file name');
+  hsffilename=[pathname hsffilename]
+  end;
+
+if length(elcfilename)==0,
+  [elcfilename, pathname] = uigetfile([pathname '*.elc'], 'Give the polhemus coil positions file name'); 
+  elcfilename=[pathname elcfilename];
+  end;
+
+transfilename
+
+if length(transfilename)==0,
+  [transfilename, pathname] = uigetfile([pathname '*xfm.mat'], 'Give the transformation (from polhemus to MRI) file name. Cancel for none.');
+  transfilename=[pathname transfilename];
+  end;
+
+if isstr(transfilename),
+  load(transfilename,'R12','T1','T2','polname','mriname');
+else,
+  disp('No transform given. Using identity transform');
+  R12=[1 0 0;0 1 0;0 0 1];
+  T1=[0 0 0];T2=[0 0 0];
+  end;
+
+[Hx,Hy,Hz]=rdhsf(hsffilename);
+startpoints=[Hx*1000 Hy*1000 Hz*1000];
+%% transform original .hsf points
+endpoints=do_trans(R12,T1,T2,startpoints);
+
+%%
+%% load the coil position (.elc) file
+%% disp('ASSUMING ONLY THREE COILS USED')
+% NrOfCoils = 3;
+NrOfCoils = [];
+[point1, point2, point3, point4, point5, NrOfRecordings]=GetAverageCoilLocations(NrOfCoils,elcfilename,pathname);
+%% 
+if ~isempty(point4), %% check to see if a five coil bitebar was used
+ 
+  bitebar_emp=[point5;point4;point3;point2;point1]/10; %% convert from mm to cm 
+  
+  bitebar_model=current_bitemodel; %% get most recent model data
+ 
+  disp('Fitting to model bite bar..')
+  [trans_bitebar_model,bitebar_emp,TRend,dist]=get_bite_fit(bitebar_emp,bitebar_model);
+  disp('left get_bite_fit');
+ 
+  %% now use trans_bitebar_model to provide new fid points
+  disp(sprintf('Fit error= %3.2f cm (should be around 0.1 or less)',dist));
+  point2=trans_bitebar_model(3,:)*10; %% convert back from cm to mm
+  point1=trans_bitebar_model(5,:)*10;
+  point3=trans_bitebar_model(1,:)*10;
+end; 
+startelcpoints=[point2;point1;point3];
+
+%% transform the coil locations
+endelcpoints=do_trans(R12,T1,T2,startelcpoints);
+figure;
+hold on;
+plot3(startelcpoints(:,1),startelcpoints(:,2),startelcpoints(:,3),'r*');
+plot3(startpoints(:,1),startpoints(:,2),startpoints(:,3),'c.');
+
+%%
+
+%% add the transformed coil locations to the headshape data
+Fx=[endpoints(:,1);endelcpoints(:,1)];
+Fy=[endpoints(:,2);endelcpoints(:,2)];
+Fz=[endpoints(:,3);endelcpoints(:,3)];
+
+
+% AH, 26 Aug 2005
+% AH, 05 Oct 2005: Even with the new polhemus system you need to transfer points into CTF-MEG coordinate system, as the coordinate system defined by the new
+% Polhemus system is incorrect (i.e. not the true MEG-CTf co-ordinate system)
+%answer = questdlg('Are the polhemus file in the old or new format?', 'polhemus question', 'old','new','new');
+%switch answer,
+%     case 'new',
+%	  % the new polhemus files are already in the CTF co-ordinate system, hence no transformation is needed
+%          MEG_Fx = Fx; MEG_Fy = Fy; MEG_Fz = Fz;
+%     case 'old',
+%          % now define the CTF-MEG (head-centred) co-ordinate system
+
+          [MEG_Fx, MEG_Fy, MEG_Fz, MEG_nasion_pos, MEG_left_preauricular_pos,MEG_right_preauricular_pos]=Bitebar2MEG(Fx, Fy, Fz,endelcpoints(1,:), endelcpoints(2,:), endelcpoints(3,:) );
+
+%          % MEG_refpoints=[MEG_nasion_pos; MEG_left_preauricular_pos; MEG_right_preauricular_pos];
+%end % switch
+
+
+% Save the headshape points in CTF fileformat
+if length(outfilename)==0,
+  root_polname=hsffilename(1:findstr(hsffilename,'.hsf')-1);
+  [filename, pathname] = uiputfile([root_polname '.CTF_hsf'], 'write the MEG headshape points in CTF format');
+  outfilename=[pathname,filesep,filename];
+end;
+
+WriteCtfHsf(outfilename,MEG_Fx/1000,MEG_Fy/1000,MEG_Fz/1000);
+
+newCTFfidpoints=endelcpoints;
+
+
+
+
+
+
+

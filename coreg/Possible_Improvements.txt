@@ -1,0 +1,5 @@
+The surface matching can be improved by:
+
+1) Weight the contribution of surface points according to the local density of the points.
+
+2) Remove outliers after an initial fit and restart the fit.
