@@ -12,8 +12,6 @@ doplot = 1;
 %
 % AS2019
 
-%shapefilename = '/cubric/scratch/sapas10/WAND_PILOT/Khalid_Hamandi.shape';
-%polfilename = '/cubric/scratch/sapas10/WAND_PILOT/251007-1_20181130_01.pos';
 
 % GB's code -
 %-------------------------------------------------------------------------
