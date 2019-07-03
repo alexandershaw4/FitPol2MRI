@@ -142,76 +142,146 @@ mri_centre = spherefit(mripoints);
 %             MEG_right_preauricular_pos; polpoints ];
 model = polpoints;
         
-% build rotation model (parameter set)
-%-------------------------------------------------------------------------
-Rx = eye(3);
-Rx(4,:) = 1;
-Rx(:,4) = 1;
+
 
 % dimensionality reduction
 %-------------------------------------------------------------------------
 % design a reduced-mri (subset) matching num polpoints
 D = cdist(mripoints,model);
 
-for i = 1:size(D,2) 
+for i = 1:size(D,2)
     % find appropriate mri point for each shape point
     [~,ind] = min(D(:,i));
     mri_match(i) = ind(1);
 end
 mri_subset = mripoints(mri_match,:);
 
-% initial fit error
-e0 = sum( sum(mri_subset - model) ).^2;
-fprintf('Initial (squared) fit error = %d\n',e0);
 
-if doplot == 1
-    figure('position',[675 596 1198 365]);
+% SET THE METHOD: 'AFFINE' = 0 ; 'ROTATOR' = 1;
+METHOD = 1;
+
+if METHOD == 0
+    
+    % FIT AN AFFINE MATRIX
+    %======================================================================
+
+    
+    % build rotation model (parameter set)
+    %-------------------------------------------------------------------------
+    Rx = eye(3);
+    Rx(4,:) = 1;
+    Rx(:,4) = 1;
+
+
+    % initial fit error
+    e0 = sum( sum(mri_subset - model) ).^2;
+    fprintf('Initial (squared) fit error = %d\n',e0);
+
+    if doplot == 1
+        figure('position',[675 596 1198 365]);
+    end
+
+    % original fids
+    fids0 = [MEG_nasion_pos; ...
+             MEG_left_preauricular_pos;...
+             MEG_right_preauricular_pos ];
+
+
+    % OPTIMISATION
+    %-------------------------------------------------------------------------
+    % options = optimset('GradObj','on');
+    % [X,F] = fminunc(@fitter,Rx(:),options);
+    [X, F, i] = PR_minimize(Rx(:), @fitter, 128);
+    %[X,F] = aoptim_edge_descent(@fitter,Rx(:),(Rx(:)*0)+.2,0,20);
+
+    fprintf('Posterior (squared) fit error = %d\n',F(end));
+
+    % compute posterior FID positions
+    %---------------------------------------------------------
+    Rx = reshape(X,[4 4]);  % rotation (affine-like)
+    fids1  = fids0*Rx(1:3,1:3);
+%     scale0 = Rx(1:3,4);     % scaling
+%     scale1 = Rx(4,1:3);
+%     bounds = [min(fids0);max(fids0)];
+% 
+%     for i = 1:3
+%         LB = bounds(1,i)*scale0(i);
+%         UB = bounds(2,i)*scale1(i);
+%         fids1(:,i) = LB + (UB - LB) .* ( fids1(:,i) - min(fids1(:,i)) ) / (max(fids1(:,i))-min(fids1(:,i)));  
+%     end
+
+    % compute posterior shape-points
+    %----------------------------------------------------------
+    pnts0 = model;
+    Rx = reshape(X,[4 4]);  % rotation (affine-like)
+    pnts  = pnts0*Rx(1:3,1:3);
+%     scale0 = Rx(1:3,4);     % scaling
+%     scale1 = Rx(4,1:3);
+%     bounds = [min(pnts0);max(pnts0)];
+% 
+%     for i = 1:3
+%         LB = bounds(1,i)*scale0(i);
+%         UB = bounds(2,i)*scale1(i);
+%         pnts(:,i) = LB + (UB - LB) .* ( pnts(:,i) - min(pnts(:,i)) ) / (max(pnts(:,i))-min(pnts(:,i)));  
+%     end
+    
+    
+elseif METHOD == 1 
+    
+    % USE ROTATE & SCALE MODEL
+    %======================================================================
+    
+    %     rx ry rz Sx Sy Sz
+    Rx = [0  0  0  0  0  0]';
+    
+    % initial error
+    e0 = fitter_rot(Rx); close;
+    fprintf('Initial (squared) fit error = %d\n',e0);
+
+    if doplot == 1
+        figure('position',[675 596 1198 365]);
+    end
+
+    % original fids
+    fids0 = [MEG_nasion_pos; ...
+             MEG_left_preauricular_pos;...
+             MEG_right_preauricular_pos ];
+    
+    % OPTIMISATION
+    %-------------------------------------------------------------------------
+    % options = optimset('GradObj','on');
+    % [X,F] = fminunc(@fitter,Rx(:),options);
+    [X, F, i] = PR_minimize(Rx, @fitter_rot, 128);
+    %[X,F] = aoptim_edge_descent(@fitter_rot,Rx,(Rx*0)+.2,0,20);
+
+    fprintf('Posterior (squared) fit error = %d\n',F(end));
+
+    % compute posterior FID positions
+    %---------------------------------------------------------
+    Rx    = X;
+    fids1 = fids0;
+    
+    % apply rotation
+    fids1 = rotator(Rx,fids1);
+    
+    % apply scale
+    c0      = Rx(4:6);
+    fids1   = fids1 - repmat(c0,[size(fids1,1),1]);
+
+    
+    % compute posterior shape-points
+    %----------------------------------------------------------
+    pnts = model;
+    
+    % apply rotation
+    pnts = rotator(Rx,pnts);
+    
+    % apply scale
+    c0     = Rx(4:6);
+    pnts   = pnts - repmat(c0,[size(pnts,1),1]);
+    
 end
-
-% original fids
-fids0 = [MEG_nasion_pos; ...
-         MEG_left_preauricular_pos;...
-         MEG_right_preauricular_pos ];
-
-
-% OPTIMISATION
-%-------------------------------------------------------------------------
-% options = optimset('GradObj','on');
-% [X,F] = fminunc(@fitter,Rx(:),options);
-[X, F, i] = PR_minimize(Rx(:), @fitter, 128);
-%[X,F] = aoptim_edge(@fitter,Rx(:),(Rx(:)*0)+max_rad,0,20);
-
-fprintf('Posterior (squared) fit error = %d\n',F(end));
-
-% compute posterior FID positions
-%---------------------------------------------------------
-Rx = reshape(X,[4 4]);  % rotation (affine-like)
-fids1  = fids0*Rx(1:3,1:3);
-scale0 = Rx(1:3,4);     % scaling
-scale1 = Rx(4,1:3);
-bounds = [min(fids0);max(fids0)];
-
-for i = 1:3
-    LB = bounds(1,i)*scale0(i);
-    UB = bounds(2,i)*scale1(i);
-    fids1(:,i) = LB + (UB - LB) .* ( fids1(:,i) - min(fids1(:,i)) ) / (max(fids1(:,i))-min(fids1(:,i)));  
-end
-
-% compute posterior shape-points
-%----------------------------------------------------------
-pnts0 = model;
-Rx = reshape(X,[4 4]);  % rotation (affine-like)
-pnts  = pnts0*Rx(1:3,1:3);
-scale0 = Rx(1:3,4);     % scaling
-scale1 = Rx(4,1:3);
-bounds = [min(pnts0);max(pnts0)];
-
-for i = 1:3
-    LB = bounds(1,i)*scale0(i);
-    UB = bounds(2,i)*scale1(i);
-    pnts(:,i) = LB + (UB - LB) .* ( pnts(:,i) - min(pnts(:,i)) ) / (max(pnts(:,i))-min(pnts(:,i)));  
-end
-
+    
 
 % make fids compatible with GB code:
 fidpoints      = fids0;
@@ -316,6 +386,91 @@ M = M*Rzz;
 
 end
 
+function [e,J,M] = fitter_rot(Rx)
+global model mripoints mri_subset doplot mri mriinfo 
+% the objective function to minimise - i.e.
+%
+% argmin: e = sum( mri_points - rotation(shapepoints) ).^2
+%
+%
+
+Rx = Rx(:)';
+
+% compute location given roation and scale
+%--------------------------------------------------------------------
+M  = rotator(Rx(1:3));
+c0 = Rx(4:6);
+M  = M - repmat(c0,[size(M,1),1]);
+
+% error to minimise
+e = sum( sum(mri_subset - M) ).^2;
+ 
+% e = sum( [min(mri_subset) max(mri_subset)] - ...
+%          [min(M)          max(M)         ] ).^2;
+
+% display
+if doplot == 1
+    %plot3(mripoints(:,1),mripoints(:,2),mripoints(:,3),'r'); hold on;
+    %scatter3(M(:,1),M(:,2),M(:,3),20,'b','filled');hold off;
+    %scatter3(dmodel(:,1),dmodel(:,2),dmodel(:,3),100,'b','filled'); hold off;
+
+    % transform to ctf mri
+    for f=1:size(M,1)
+        Mctf(f,:)=ctfhead2mri(M(f,:).*1000,...
+            mriinfo.transformHead2MRI',mriinfo.mmPerPixel_sagittal); %% works for mm input
+    end
+    
+    % plots
+    subplot(131);
+    im=imagesc( mat2gray( squeeze( mri(:,128,:) ) )' );
+    colormap(gray)    ;hold on;
+    scatter(Mctf(:,1),Mctf(:,3),10,'r','filled');axis square;
+    hold off; 
+    set(gca,'visible','off')
+    
+    subplot(132);
+    im=imagesc( mat2gray( squeeze( mri(128,:,:) ) )' );
+    colormap(gray)    ;hold on;
+    scatter(Mctf(:,2),Mctf(:,3),10,'r','filled');axis square;
+    hold off;    
+    set(gca,'visible','off')
+    
+    subplot(133);
+    im=imagesc( mat2gray( squeeze( mri(:,:,128) ) )' );
+    colormap(gray)    ;hold on;
+    scatter(Mctf(:,1),Mctf(:,2),10,'r','filled');axis square;
+    hold off;    
+    set(gca,'visible','off')
+    
+    drawnow;
+end
+
+if nargout > 1
+    %fprintf('computing gradients\n');
+    %Rx = Rx(:);
+    % compute approx jacobian
+    delta = .08;
+    for i = 1:length(Rx)
+        dRx0    = Rx;
+        dRx1    = Rx;
+        dRx0(i) = dRx0(i) + delta;
+        dRx1(i) = dRx1(i) - delta;
+
+        k0      = fitter_rot(dRx0);
+        k1      = fitter_rot(dRx1);
+        J(i,:)  = (k0 - k1)/(2*delta);
+        
+    end
+    if doplot
+        title(e);
+    end
+end
+
+
+end
+
+
+
 function [e,J,M] = fitter(Rx)
 global model mripoints mri_subset doplot mri mriinfo 
 % the objective function to minimise - i.e.
@@ -328,15 +483,15 @@ global model mripoints mri_subset doplot mri mriinfo
 %--------------------------------------------------------------------
 Rx = reshape(Rx,[4 4]);
 M  = model*Rx(1:3,1:3);
-scale0 = Rx(1:3,4);
-scale1 = Rx(4,1:3);
-bounds = [min(model);max(model)];
-
-for i = 1:3
-    LB = bounds(1,i)*scale0(i);
-    UB = bounds(2,i)*scale1(i);
-    M(:,i) = LB + (UB - LB) .* ( M(:,i) - min(M(:,i)) ) / (max(M(:,i))-min(M(:,i)));  
-end
+% scale0 = Rx(1:3,4);
+% scale1 = Rx(4,1:3);
+% bounds = [min(model);max(model)];
+% 
+% for i = 1:3
+%     LB = bounds(1,i)*scale0(i);
+%     UB = bounds(2,i)*scale1(i);
+%     M(:,i) = LB + (UB - LB) .* ( M(:,i) - min(M(:,i)) ) / (max(M(:,i))-min(M(:,i)));  
+% end
 
 % error to minimise
 e = sum( sum(mri_subset - M) ).^2;
