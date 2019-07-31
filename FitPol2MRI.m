@@ -158,7 +158,7 @@ mri_subset = mripoints(mri_match,:);
 
 
 % SET THE METHOD: 'AFFINE' = 0 ; 'ROTATOR' = 1;
-METHOD = 1;
+METHOD = 2;
 
 if METHOD == 0
     
@@ -191,8 +191,8 @@ if METHOD == 0
     %-------------------------------------------------------------------------
     % options = optimset('GradObj','on');
     % [X,F] = fminunc(@fitter,Rx(:),options);
-    [X, F, i] = PR_minimize(Rx(:), @fitter, 128);
-    %[X,F] = aoptim_edge_descent(@fitter,Rx(:),(Rx(:)*0)+.2,0,20);
+    %[X, F, i] = PR_minimize(Rx(:), @fitter, 128);
+    [X,F] = AO(@fitter,Rx,(Rx*0)+.2,0,[],[],[],1e-12);
 
     fprintf('Posterior (squared) fit error = %d\n',F(end));
 
@@ -251,8 +251,8 @@ elseif METHOD == 1
     %-------------------------------------------------------------------------
     % options = optimset('GradObj','on');
     % [X,F] = fminunc(@fitter,Rx(:),options);
-    [X, F, i] = PR_minimize(Rx, @fitter_rot, 128);
-    %[X,F] = aoptim_edge_descent(@fitter_rot,Rx,(Rx*0)+.2,0,20);
+    %[X, F, i] = PR_minimize(Rx, @fitter_rot, 128);
+    [X,F] = AO(@fitter_rot,Rx,(Rx*0)+.2,0,[],[],[],1e-12);
 
     fprintf('Posterior (squared) fit error = %d\n',F(end));
 
@@ -280,6 +280,64 @@ elseif METHOD == 1
     c0     = Rx(4:6);
     pnts   = pnts - repmat(c0',[size(pnts,1),1]);
     
+elseif METHOD == 2
+    
+    % USE ROTATE & SCALE MODEL
+    %======================================================================
+    
+    %     rx   ry   rz   Sx   Sy   Sz 
+    Rx = [0    0    0    .9   .9   .9 ]';
+    Rv = [1/16 1/16 1/16 1/5  1/5  1/5]';
+    
+    % initial error
+    e0 = fitter_rot_scale(Rx); close;
+    fprintf('Initial (squared) fit error = %d\n',e0);
+
+    if doplot == 1
+        figure('position',[675 596 1198 365]);
+    end
+
+    % original fids
+    fids0 = [MEG_nasion_pos; ...
+             MEG_left_preauricular_pos;...
+             MEG_right_preauricular_pos ];
+    
+    % OPTIMISATION
+    %-------------------------------------------------------------------------
+    % options = optimset('GradObj','on');
+    % [X,F] = fminunc(@fitter,Rx(:),options);
+    %[X, F, i] = PR_minimize(Rx, @fitter_rot, 128);
+    [X,F] = AO(@fitter_rot_scale,Rx,Rv,0,[],[],[],1e-12);
+
+    fprintf('Posterior (squared) fit error = %d\n',F(end));
+
+    % compute posterior FID positions
+    %---------------------------------------------------------
+    Rx    = X;
+    fids1 = fids0;
+    
+    % apply rotation
+    fids1 = rotator(Rx,fids1);
+    
+    % apply scale
+    c0      = Rx(4:6);
+    fids1   = fids1 .* repmat(c0',[size(fids1,1),1]);
+
+    
+    % compute posterior shape-points
+    %----------------------------------------------------------
+    pnts = model;
+    
+    % apply rotation
+    pnts = rotator(Rx,pnts);
+    
+    % apply scale
+    c0     = Rx(4:6);
+    pnts   = pnts - repmat(c0',[size(pnts,1),1]);
+        
+    fprintf('\nCHANGES:\n-------------------------------------------------\n');
+    fprintf('x rotation: %d / x scale: %d\ny rotation: %d / y scale: %d\nz rotation: %d / z scale: %d\n\n',...
+        Rx(1),Rx(4),Rx(2),Rx(5),Rx(3),Rx(6) );
 end
     
 
@@ -469,6 +527,88 @@ end
 
 end
 
+function [e,J,M] = fitter_rot_scale(Rx)
+global model mripoints mri_subset doplot mri mriinfo 
+% the objective function to minimise - i.e.
+%
+% argmin: e = sum( mri_points - rotation(shapepoints) ).^2
+%
+%
+
+Rx = Rx(:)';
+
+% compute location given roation and scale
+%--------------------------------------------------------------------
+M  = rotator(Rx(1:3));
+S1 = Rx(4:6);
+M  = M .* repmat(S1,[size(M,1),1]);
+
+% error to minimise
+e = sum( sum(mri_subset - M) ).^2;
+ 
+% e = sum( [min(mri_subset) max(mri_subset)] - ...
+%          [min(M)          max(M)         ] ).^2;
+
+% display
+if doplot == 1
+    %plot3(mripoints(:,1),mripoints(:,2),mripoints(:,3),'r'); hold on;
+    %scatter3(M(:,1),M(:,2),M(:,3),20,'b','filled');hold off;
+    %scatter3(dmodel(:,1),dmodel(:,2),dmodel(:,3),100,'b','filled'); hold off;
+
+    % transform to ctf mri
+    for f=1:size(M,1)
+        Mctf(f,:)=ctfhead2mri(M(f,:).*1000,...
+            mriinfo.transformHead2MRI',mriinfo.mmPerPixel_sagittal); %% works for mm input
+    end
+    
+    % plots
+    subplot(131);
+    im=imagesc( mat2gray( squeeze( mri(:,128,:) ) )' );
+    colormap(gray)    ;hold on;
+    scatter(Mctf(:,1),Mctf(:,3),10,'r','filled');axis square;
+    hold off; 
+    set(gca,'visible','off')
+    
+    subplot(132);
+    im=imagesc( mat2gray( squeeze( mri(128,:,:) ) )' );
+    colormap(gray)    ;hold on;
+    scatter(Mctf(:,2),Mctf(:,3),10,'r','filled');axis square;
+    hold off;    
+    set(gca,'visible','off')
+    
+    subplot(133);
+    im=imagesc( mat2gray( squeeze( mri(:,:,128) ) )' );
+    colormap(gray)    ;hold on;
+    scatter(Mctf(:,1),Mctf(:,2),10,'r','filled');axis square;
+    hold off;    
+    set(gca,'visible','off')
+    
+    drawnow;
+end
+
+if nargout > 1
+    %fprintf('computing gradients\n');
+    %Rx = Rx(:);
+    % compute approx jacobian
+    delta = .08;
+    for i = 1:length(Rx)
+        dRx0    = Rx;
+        dRx1    = Rx;
+        dRx0(i) = dRx0(i) + delta;
+        dRx1(i) = dRx1(i) - delta;
+
+        k0      = fitter_rot(dRx0);
+        k1      = fitter_rot(dRx1);
+        J(i,:)  = (k0 - k1)/(2*delta);
+        
+    end
+    if doplot
+        title(e);
+    end
+end
+
+
+end
 
 
 function [e,J,M] = fitter(Rx)
