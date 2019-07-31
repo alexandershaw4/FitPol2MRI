@@ -266,7 +266,7 @@ elseif METHOD == 1
     
     % apply scale
     c0      = Rx(4:6);
-    fids1   = fids1 - repmat(c0,[size(fids1,1),1]);
+    fids1   = fids1 - repmat(c0',[size(fids1,1),1]);
 
     
     % compute posterior shape-points
@@ -278,7 +278,7 @@ elseif METHOD == 1
     
     % apply scale
     c0     = Rx(4:6);
-    pnts   = pnts - repmat(c0,[size(pnts,1),1]);
+    pnts   = pnts - repmat(c0',[size(pnts,1),1]);
     
 end
     
