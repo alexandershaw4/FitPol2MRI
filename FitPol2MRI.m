@@ -333,7 +333,7 @@ elseif METHOD == 2
     
     % apply scale
     c0     = Rx(4:6);
-    pnts   = pnts - repmat(c0',[size(pnts,1),1]);
+    pnts   = pnts .* repmat(c0',[size(pnts,1),1]);
         
     fprintf('\nCHANGES:\n-------------------------------------------------\n');
     fprintf('x rotation: %d / x scale: %d\ny rotation: %d / y scale: %d\nz rotation: %d / z scale: %d\n\n',...
